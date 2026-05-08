@@ -56,6 +56,7 @@ def tavily_search(query: str, search_depth: str = "advanced", max_results: int =
     api_key = st.secrets.get("TAVILY_API_KEY", os.getenv("TAVILY_API_KEY", ""))
 
     if not api_key:
+        st.warning("⚠️ Tavily API Key 未配置，跳过搜索")
         return {"results": [], "error": "未配置Tavily API Key"}
 
     url = "https://api.tavily.com/search"
@@ -65,7 +66,7 @@ def tavily_search(query: str, search_depth: str = "advanced", max_results: int =
     payload = {
         "api_key": api_key,
         "query": query,
-        "search_depth": search_depth,  # "basic" 或 "advanced"
+        "search_depth": search_depth,
         "include_answer": True,
         "include_raw_content": False,
         "max_results": max_results,
@@ -76,10 +77,15 @@ def tavily_search(query: str, search_depth: str = "advanced", max_results: int =
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=30)
         if response.status_code == 200:
-            return response.json()
+            data = response.json()
+            st.info(f"✅ Tavily搜索成功: {len(data.get('results', []))} 条结果")
+            return data
         else:
+            st.error(f"❌ Tavily API 返回状态码: {response.status_code}")
+            st.error(f"响应内容: {response.text[:500]}")
             return {"results": [], "error": f"API返回状态码: {response.status_code}"}
     except Exception as e:
+        st.error(f"❌ Tavily 搜索失败: {str(e)}")
         return {"results": [], "error": str(e)}
 
 
@@ -463,8 +469,18 @@ WRITER_PROMPT = """你是一位学术报告撰写专家。请将分析结果转�
 
 def call_llm(system_prompt: str, user_prompt: str, stream: bool = True) -> str:
     """调用DeepSeek API"""
-    client = get_client()
+    api_key = st.secrets.get("DEEPSEEK_API_KEY", os.getenv("DEEPSEEK_API_KEY", ""))
+    if not api_key:
+        st.error("❌ DeepSeek API Key 未配置")
+        return ""
+
+    client = OpenAI(
+        api_key=api_key,
+        base_url="https://api.deepseek.com"
+    )
+
     try:
+        st.info(f"🔄 正在调用 DeepSeek API...")
         response = client.chat.completions.create(
             model="deepseek-chat",
             messages=[
@@ -473,7 +489,8 @@ def call_llm(system_prompt: str, user_prompt: str, stream: bool = True) -> str:
             ],
             temperature=0.3,
             max_tokens=8000,
-            stream=stream
+            stream=stream,
+            timeout=120
         )
 
         if stream:
@@ -484,24 +501,37 @@ def call_llm(system_prompt: str, user_prompt: str, stream: bool = True) -> str:
                     full_response += chunk.choices[0].delta.content
                     placeholder.markdown(full_response + "▌")
             placeholder.markdown(full_response)
+            st.success("✅ API 调用成功")
             return full_response
         else:
-            return response.choices[0].message.content
+            result = response.choices[0].message.content
+            st.success("✅ API 调用成功")
+            return result
 
     except Exception as e:
-        st.error(f"API调用失败: {str(e)}")
+        st.error(f"❌ API调用失败: {str(e)}")
+        st.error(f"错误类型: {type(e).__name__}")
         return ""
 
 
 def run_research(topic: str):
     """执行完整调研流程"""
 
+    # 调试信息
+    st.markdown("---")
+    st.markdown("### 🔧 调试信息")
+    deepseek_key = st.secrets.get("DEEPSEEK_API_KEY", os.getenv("DEEPSEEK_API_KEY", ""))
+    tavily_key = st.secrets.get("TAVILY_API_KEY", os.getenv("TAVILY_API_KEY", ""))
+    st.write(f"- DeepSeek Key: {'✅ 已配置' if deepseek_key else '❌ 未配置'}")
+    st.write(f"- Tavily Key: {'✅ 已配置' if tavily_key else '❌ 未配置'}")
+    st.markdown("---")
+
     # 步骤1：调研规划
     st.markdown("### 📋 步骤1：制定调研计划")
-    with st.spinner("正在分析调研主题..."):
-        plan = call_llm(PLANNER_PROMPT, f"调研主题：{topic}")
+    plan = call_llm(PLANNER_PROMPT, f"调研主题：{topic}")
 
     if not plan:
+        st.error("❌ 调研规划失败，请检查API配置")
         return
 
     # 解析调研计划
@@ -513,7 +543,9 @@ def run_research(topic: str):
             json_str = plan.split("```")[1].split("```")[0]
         plan_data = json.loads(json_str.strip())
         search_queries = plan_data.get("search_queries", {})
-    except:
+        st.json(plan_data)
+    except Exception as e:
+        st.warning(f"⚠️ 无法解析调研计划JSON，使用默认搜索词: {str(e)}")
         search_queries = {
             "academic": [topic],
             "news": [topic],
@@ -549,40 +581,40 @@ def run_research(topic: str):
 
     # 步骤3：信息整合与验证
     st.markdown("### ✅ 步骤3：信息整合与验证")
-    with st.spinner("正在验证和整合信息..."):
-        verification = call_llm(
-            VERIFIER_PROMPT,
-            f"调研主题：{topic}\n\n调研计划：{plan}\n\n检索到的信息：\n{formatted_results}",
-            stream=False
-        )
+    verification = call_llm(
+        VERIFIER_PROMPT,
+        f"调研主题：{topic}\n\n调研计划：{plan}\n\n检索到的信息：\n{formatted_results}",
+        stream=False
+    )
 
     if not verification:
-        return
+        st.warning("⚠️ 信息验证步骤失败，将使用原始搜索结果继续")
+        verification = formatted_results
 
     st.markdown("---")
 
     # 步骤4：深度分析
     st.markdown("### 📊 步骤4：社会政治深度分析")
-    with st.spinner("正在进行深度分析..."):
-        analysis = call_llm(
-            ANALYST_PROMPT,
-            f"调研主题：{topic}\n\n调研计划：{plan}\n\n验证后的信息：{verification}"
-        )
+    analysis = call_llm(
+        ANALYST_PROMPT,
+        f"调研主题：{topic}\n\n调研计划：{plan}\n\n验证后的信息：{verification}"
+    )
 
     if not analysis:
+        st.error("❌ 深度分析失败")
         return
 
     st.markdown("---")
 
     # 步骤5：生成报告
     st.markdown("### 📝 步骤5：生成调研报告")
-    with st.spinner("正在撰写报告..."):
-        report = call_llm(
-            WRITER_PROMPT,
-            f"调研主题：{topic}\n\n调研计划：{plan}\n\n验证后的信息：{verification}\n\n深度分析：{analysis}"
-        )
+    report = call_llm(
+        WRITER_PROMPT,
+        f"调研主题：{topic}\n\n调研计划：{plan}\n\n验证后的信息：{verification}\n\n深度分析：{analysis}"
+    )
 
     if not report:
+        st.error("❌ 报告生成失败")
         return
 
     st.markdown("---")
