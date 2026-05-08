@@ -476,11 +476,11 @@ def call_llm(system_prompt: str, user_prompt: str, stream: bool = True) -> str:
 
     client = OpenAI(
         api_key=api_key,
-        base_url="https://api.deepseek.com"
+        base_url="https://api.deepseek.com",
+        timeout=180.0
     )
 
     try:
-        st.info(f"🔄 正在调用 DeepSeek API...")
         response = client.chat.completions.create(
             model="deepseek-chat",
             messages=[
@@ -488,9 +488,8 @@ def call_llm(system_prompt: str, user_prompt: str, stream: bool = True) -> str:
                 {"role": "user", "content": user_prompt}
             ],
             temperature=0.3,
-            max_tokens=8000,
-            stream=stream,
-            timeout=120
+            max_tokens=4000,
+            stream=stream
         )
 
         if stream:
@@ -501,30 +500,17 @@ def call_llm(system_prompt: str, user_prompt: str, stream: bool = True) -> str:
                     full_response += chunk.choices[0].delta.content
                     placeholder.markdown(full_response + "▌")
             placeholder.markdown(full_response)
-            st.success("✅ API 调用成功")
             return full_response
         else:
-            result = response.choices[0].message.content
-            st.success("✅ API 调用成功")
-            return result
+            return response.choices[0].message.content
 
     except Exception as e:
         st.error(f"❌ API调用失败: {str(e)}")
-        st.error(f"错误类型: {type(e).__name__}")
         return ""
 
 
 def run_research(topic: str):
     """执行完整调研流程"""
-
-    # 调试信息
-    st.markdown("---")
-    st.markdown("### 🔧 调试信息")
-    deepseek_key = st.secrets.get("DEEPSEEK_API_KEY", os.getenv("DEEPSEEK_API_KEY", ""))
-    tavily_key = st.secrets.get("TAVILY_API_KEY", os.getenv("TAVILY_API_KEY", ""))
-    st.write(f"- DeepSeek Key: {'✅ 已配置' if deepseek_key else '❌ 未配置'}")
-    st.write(f"- Tavily Key: {'✅ 已配置' if tavily_key else '❌ 未配置'}")
-    st.markdown("---")
 
     # 步骤1：调研规划
     st.markdown("### 📋 步骤1：制定调研计划")
@@ -649,72 +635,27 @@ def run_research(topic: str):
 def main():
     # 侧边栏
     with st.sidebar:
-        st.markdown("## ⚙️ 配置")
+        st.markdown("## 📖 使用说明")
 
-        # DeepSeek API Key
-        st.markdown("### DeepSeek API Key *")
-        api_key = st.text_input(
-            "DeepSeek API Key",
-            type="password",
-            help="必填 - 从 platform.deepseek.com 获取",
-            label_visibility="collapsed"
-        )
-        if api_key:
-            os.environ["DEEPSEEK_API_KEY"] = api_key
-            st.success("✅ 已配置")
-
-        st.markdown("---")
-
-        # Tavily API Key
-        st.markdown("### Tavily API Key *")
-        tavily_key = st.text_input(
-            "Tavily API Key",
-            type="password",
-            help="必填 - 从 tavily.com 获取（免费1000次/月）",
-            label_visibility="collapsed"
-        )
-        if tavily_key:
-            os.environ["TAVILY_API_KEY"] = tavily_key
-            st.success("✅ 已配置")
-
-        st.markdown("---")
-
-        # API状态
-        st.markdown("### 状态检查")
-        deepseek_ok = api_key or os.getenv('DEEPSEEK_API_KEY')
-        tavily_ok = tavily_key or os.getenv('TAVILY_API_KEY')
-
-        st.markdown(f"- DeepSeek: {'✅' if deepseek_ok else '❌ 未配置'}")
-        st.markdown(f"- Tavily搜索: {'✅' if tavily_ok else '❌ 未配置'}")
-
-        if not deepseek_ok or not tavily_ok:
-            st.warning("请配置必填的API Key")
-
-        st.markdown("---")
-
-        # 使用说明
         st.markdown("""
-        ## 📖 使用说明
+        ### 操作步骤
 
-        1. 配置API Key（必填）
-        2. 输入调研主题
-        3. 点击"开始调研"
-        4. 等待2-5分钟
-        5. 下载调研报告
+        1. 输入调研主题
+        2. 点击"开始调研"
+        3. 等待2-5分钟
+        4. 下载调研报告
 
-        ## 🔑 API Key获取
+        ### 调研流程
 
-        **DeepSeek**：
-        - 访问 platform.deepseek.com
-        - 注册并获取API Key
-
-        **Tavily**：
-        - 访问 tavily.com
-        - 注册获取免费Key
-        - 每月1000次免费搜索
+        - 📋 制定调研计划
+        - 🔍 多源信息检索
+        - ✅ 信息整合验证
+        - 📊 社会政治分析
+        - 📝 生成调研报告
         """)
 
         st.markdown("---")
+
         st.markdown("## 💡 示例主题")
         st.markdown("""
         - 金正恩的国内政策决策与社会控制
@@ -724,10 +665,19 @@ def main():
         """)
 
         st.markdown("---")
+
+        st.markdown("## 🔧 技术说明")
+        st.markdown("""
+        - AI模型：DeepSeek V4 Pro
+        - 搜索引擎：Tavily
+        - 分析框架：社会政治分析
+        """)
+
+        st.markdown("---")
         st.markdown("""
         <div style='text-align: center; color: #999; font-size: 0.8rem;'>
             社会政治调研助手 v2.0<br>
-            DeepSeek V4 Pro + Tavily Search
+            专注于国内社会政治结构与过程分析
         </div>
         """, unsafe_allow_html=True)
 
@@ -765,12 +715,16 @@ def main():
             st.warning("⚠️ 请输入调研主题")
             return
 
-        if not os.getenv("DEEPSEEK_API_KEY"):
-            st.warning("⚠️ 请先在左侧配置 DeepSeek API Key")
+        # API Key检查
+        deepseek_key = st.secrets.get("DEEPSEEK_API_KEY", os.getenv("DEEPSEEK_API_KEY", ""))
+        tavily_key = st.secrets.get("TAVILY_API_KEY", os.getenv("TAVILY_API_KEY", ""))
+
+        if not deepseek_key:
+            st.error("❌ DeepSeek API Key 未配置，请联系管理员")
             return
 
-        if not os.getenv("TAVILY_API_KEY"):
-            st.warning("⚠️ 请先在左侧配置 Tavily API Key")
+        if not tavily_key:
+            st.error("❌ Tavily API Key 未配置，请联系管理员")
             return
 
         st.markdown("---")
