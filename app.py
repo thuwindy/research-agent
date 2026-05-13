@@ -14,6 +14,11 @@ st.set_page_config(
 # 自定义CSS
 st.markdown("""
 <style>
+    /* 侧边栏加宽 */
+    [data-testid="stSidebar"] {
+        min-width: 320px !important;
+        max-width: 320px !important;
+    }
     .main-header {
         font-size: 2.5rem;
         font-weight: bold;
@@ -33,6 +38,35 @@ st.markdown("""
         padding: 1rem;
         border-radius: 8px;
         text-align: center;
+    }
+    /* 调研计划格式化显示 */
+    .plan-section {
+        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+        padding: 1.2rem;
+        border-radius: 10px;
+        margin-bottom: 0.8rem;
+        border-left: 4px solid #1E3A5F;
+    }
+    .plan-section h4 {
+        margin-top: 0;
+        color: #1E3A5F;
+    }
+    .plan-tag {
+        display: inline-block;
+        background: #1E3A5F;
+        color: white;
+        padding: 2px 10px;
+        border-radius: 12px;
+        font-size: 0.85rem;
+        margin: 2px;
+    }
+    /* 执行摘要样式 */
+    .exec-summary {
+        background: linear-gradient(135deg, #f0f7ff 0%, #e6f0ff 100%);
+        padding: 1.5rem;
+        border-radius: 10px;
+        border: 1px solid #b8d4fe;
+        margin-bottom: 1rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -78,7 +112,6 @@ def tavily_search(query: str, search_depth: str = "advanced", max_results: int =
         response = requests.post(url, headers=headers, json=payload, timeout=30)
         if response.status_code == 200:
             data = response.json()
-            st.info(f"✅ Tavily搜索成功: {len(data.get('results', []))} 条结果")
             return data
         else:
             st.error(f"❌ Tavily API 返回状态码: {response.status_code}")
@@ -130,8 +163,11 @@ def assess_credibility(url: str, title: str) -> str:
     return "待验证"
 
 
-def multi_source_search(topic: str, search_queries: dict) -> dict:
+def multi_source_search(topic: str, search_queries: dict, search_depth: str = "standard") -> dict:
     """执行多源信息检索（使用Tavily）"""
+
+    # 映射搜索深度
+    depth = "advanced" if search_depth == "深度" else "basic"
 
     all_results = {
         "academic": [],
@@ -146,7 +182,7 @@ def multi_source_search(topic: str, search_queries: dict) -> dict:
     for query in academic_queries[:2]:
         result = tavily_search(
             query=f"{query} 学术研究 论文",
-            search_depth="advanced",
+            search_depth=depth,
             max_results=5
         )
         for item in result.get("results", []):
@@ -184,7 +220,7 @@ def multi_source_search(topic: str, search_queries: dict) -> dict:
     for query in official_queries[:2]:
         result = tavily_search(
             query=f"{query} 官方文件 政策 智库报告",
-            search_depth="advanced",
+            search_depth=depth,
             max_results=5
         )
         for item in result.get("results", []):
@@ -202,7 +238,7 @@ def multi_source_search(topic: str, search_queries: dict) -> dict:
     st.markdown("🔍 **检索综合信息...**")
     result = tavily_search(
         query=f"{topic} 社会政治 分析 治理",
-        search_depth="advanced",
+        search_depth=depth,
         max_results=8
     )
     for item in result.get("results", []):
@@ -407,10 +443,11 @@ WRITER_PROMPT = """你是一位学术报告撰写专家。请将分析结果转�
 
 ## 报告结构
 
-### 执行摘要（300字以内）
-- 核心发现
-- 主要结论
-- 政策启示
+> **执行摘要**（放在报告最顶部，用 > 引用块突出显示）
+>
+> **核心发现：** [1-2句话概括最重要的发现]
+> **主要结论：** [2-3条要点，每条以 • 开头]
+> **政策启示：** [1-2条启示]
 
 ---
 
@@ -428,9 +465,21 @@ WRITER_PROMPT = """你是一位学术报告撰写专家。请将分析结果转�
 
 ### 三、详细分析
 #### 3.1 政治维度分析
+- 权力结构与社会基础
+- 政治参与状况
+- 意识形态治理
+
 #### 3.2 经济维度分析
+- 分配政治与福利政策
+- 社会不平等与阶层结构
+
 #### 3.3 社会维度分析
+- 社会动员与集体行动
+- 社会控制与社会认同
+
 #### 3.4 历史脉络分析
+- 政策演变脉络
+- 社会政治变迁周期
 
 ---
 
@@ -442,7 +491,7 @@ WRITER_PROMPT = """你是一位学术报告撰写专家。请将分析结果转�
 ---
 
 ### 五、研究发现与结论
-#### 5.1 核心发现（3-5条，每条必须有来源支撑）
+#### 5.1 核心发现（3-5条，每条带编号，必须有来源支撑）
 #### 5.2 理论贡献
 #### 5.3 实践启示
 
@@ -462,6 +511,7 @@ WRITER_PROMPT = """你是一位学术报告撰写专家。请将分析结果转�
 
 ## 格式要求
 - 使用Markdown格式
+- 执行摘要放在报告最顶部，使用 > 引用块格式，简明扼要（不超过300字）
 - 标注所有引用来源
 - 区分事实陈述与分析判断
 - 保持学术客观性"""
@@ -509,7 +559,7 @@ def call_llm(system_prompt: str, user_prompt: str, stream: bool = True) -> str:
         return ""
 
 
-def run_research(topic: str):
+def run_research(topic: str, search_depth: str = "标准", analysis_type: str = "完整分析"):
     """执行完整调研流程"""
 
     # 步骤1：调研规划
@@ -529,7 +579,80 @@ def run_research(topic: str):
             json_str = plan.split("```")[1].split("```")[0]
         plan_data = json.loads(json_str.strip())
         search_queries = plan_data.get("search_queries", {})
-        st.json(plan_data)
+
+        # 格式化显示调研计划
+        with st.expander("📋 查看完整调研计划", expanded=True):
+            st.markdown(f"""
+            <div class="plan-section">
+                <h4>📌 调研主题</h4>
+                <p style="font-size:1.1rem;font-weight:bold;">{plan_data.get('research_topic', topic)}</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.markdown(f"""
+                <div class="plan-section">
+                    <h4>⏰ 时间范围</h4>
+                    <p>{plan_data.get('time_range', '未指定')}</p>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_b:
+                st.markdown(f"""
+                <div class="plan-section">
+                    <h4>🌍 地理范围</h4>
+                    <p>{plan_data.get('geographic_scope', '未指定')}</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+            subs = plan_data.get('subtopics', [])
+            if subs:
+                st.markdown("**📑 子主题：**")
+                tags_html = " ".join([f'<span class="plan-tag">{s}</span>' for s in subs])
+                st.markdown(tags_html, unsafe_allow_html=True)
+
+            questions = plan_data.get('research_questions', [])
+            if questions:
+                st.markdown("**❓ 核心研究问题：**")
+                for q in questions:
+                    st.markdown(f"- {q}")
+
+            af = plan_data.get('analysis_focus', {})
+            if af:
+                st.markdown("**🔬 分析焦点：**")
+                cols = st.columns(4)
+                dims = [
+                    ("政治维度", af.get('political', '')),
+                    ("经济维度", af.get('economic', '')),
+                    ("社会维度", af.get('social', '')),
+                    ("历史维度", af.get('historical', ''))
+                ]
+                for i, (label, content) in enumerate(dims):
+                    if content:
+                        with cols[i]:
+                            st.markdown(f"""
+                            <div class="plan-section" style="text-align:center;">
+                                <strong>{label}</strong>
+                                <p style="font-size:0.9rem;margin-top:0.3rem;">{content[:80]}...</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+            sq = plan_data.get('search_queries', {})
+            if sq:
+                st.markdown("**🔍 搜索策略：**")
+                scols = st.columns(4)
+                sq_map = [
+                    ("学术", "🎓", sq.get('academic', [])),
+                    ("新闻", "📰", sq.get('news', [])),
+                    ("官方", "🏛️", sq.get('official', [])),
+                    ("智库", "🧠", sq.get('thinktank', []))
+                ]
+                for i, (label, icon, queries) in enumerate(sq_map):
+                    if queries:
+                        with scols[i]:
+                            for q in queries[:3]:
+                                st.caption(f"{icon} {q[:60]}")
+
     except Exception as e:
         st.warning(f"⚠️ 无法解析调研计划JSON，使用默认搜索词: {str(e)}")
         search_queries = {
@@ -543,7 +666,7 @@ def run_research(topic: str):
 
     # 步骤2：多源信息检索
     st.markdown("### 🔍 步骤2：多源信息检索")
-    search_results = multi_source_search(topic, search_queries)
+    search_results = multi_source_search(topic, search_queries, search_depth)
 
     # 统计结果
     total_results = sum(len(v) for v in search_results.values())
@@ -581,8 +704,16 @@ def run_research(topic: str):
 
     # 步骤4：深度分析
     st.markdown("### 📊 步骤4：社会政治深度分析")
+
+    # 根据分析类型调整提示词
+    analyst_extra = ""
+    if analysis_type == "快速概览":
+        analyst_extra = "\n请做快速概览分析，控制在1000字以内，聚焦核心发现。"
+    elif analysis_type == "专题分析":
+        analyst_extra = "\n请做专题深度分析，选择2-3个最关键的子主题深入挖掘，每个子主题不少于500字的分析。"
+
     analysis = call_llm(
-        ANALYST_PROMPT,
+        ANALYST_PROMPT + analyst_extra,
         f"调研主题：{topic}\n\n调研计划：{plan}\n\n验证后的信息：{verification}"
     )
 
@@ -594,8 +725,16 @@ def run_research(topic: str):
 
     # 步骤5：生成报告
     st.markdown("### 📝 步骤5：生成调研报告")
+
+    # 根据分析类型调整报告
+    writer_extra = ""
+    if analysis_type == "快速概览":
+        writer_extra = "\n请生成2000字以内的精简报告，聚焦执行摘要和核心发现。"
+    elif analysis_type == "专题分析":
+        writer_extra = "\n请生成详细的专题研究报告，每个分析维度的专题子项不少于800字分析。"
+
     report = call_llm(
-        WRITER_PROMPT,
+        WRITER_PROMPT + writer_extra,
         f"调研主题：{topic}\n\n调研计划：{plan}\n\n验证后的信息：{verification}\n\n深度分析：{analysis}"
     )
 
@@ -731,7 +870,7 @@ def main():
         st.markdown(f"## 📚 调研主题：{topic}")
         st.markdown("---")
 
-        run_research(topic)
+        run_research(topic, search_depth, analysis_type)
 
     # 页脚
     st.markdown("---")
